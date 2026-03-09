@@ -1294,7 +1294,7 @@ function renderTable() {
         + '<td class="cell-artist" title="' + esc(s.artist) + '">' + esc(s.artist) + '</td>'
         + '<td class="editable"><input value="' + esc(s.chords) + '" placeholder="I-V-vi-IV" class="' + (s.chords?'filled':'') + '" data-id="' + esc(s.id) + '" data-field="chords"></td>'
         + '<td class="editable"><input value="' + esc(s.key) + '" placeholder="Cm" class="' + (s.key?'filled':'') + '" data-id="' + esc(s.id) + '" data-field="key" style="width:60px"></td>'
-        + '<td class="cell-genre">' + genreHtml + '</td>'
+        + '<td class="editable"><input value="' + esc(s.genre) + '" placeholder="장르" class="' + (s.genre?'filled':'') + '" data-id="' + esc(s.id) + '" data-field="genre"></td>'
         + '<td class="editable"><input value="' + esc(s.subgenre) + '" placeholder="세부장르" class="' + (s.subgenre?'filled':'') + '" data-id="' + esc(s.id) + '" data-field="subgenre"></td>'
         + '<td class="editable"><input value="' + esc(s.composer) + '" placeholder="작곡가" class="' + (s.composer?'filled':'') + '" data-id="' + esc(s.id) + '" data-field="composer"></td>'
         + '<td class="editable"><input value="' + esc(s.label) + '" placeholder="레이블" class="' + (s.label?'filled':'') + '" data-id="' + esc(s.id) + '" data-field="label"></td>'
@@ -1321,6 +1321,7 @@ function renderTable() {
         + '</div>'
         + (genreCards ? '<div class="card-genres">' + genreCards + '</div>' : '')
         + '<div class="card-fields">'
+        + '<div class="card-field" style="grid-column:1/-1"><label>장르</label><input value="' + esc(s.genre) + '" placeholder="장르 (쉼표로 구분)" class="' + (s.genre?'filled':'') + '" data-id="' + esc(s.id) + '" data-field="genre"></div>'
         + '<div class="card-field"><label>코드진행</label><input value="' + esc(s.chords) + '" placeholder="I-V-vi-IV" class="' + (s.chords?'filled':'') + '" data-id="' + esc(s.id) + '" data-field="chords"></div>'
         + '<div class="card-field"><label>키</label><input value="' + esc(s.key) + '" placeholder="Cm" class="' + (s.key?'filled':'') + '" data-id="' + esc(s.id) + '" data-field="key"></div>'
         + '<div class="card-field"><label>세부장르</label><input value="' + esc(s.subgenre) + '" placeholder="세부장르" class="' + (s.subgenre?'filled':'') + '" data-id="' + esc(s.id) + '" data-field="subgenre"></div>'
