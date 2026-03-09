@@ -950,13 +950,18 @@ async function fetchLikedSongs() {
     syncLog('🎵 좋아요 목록 불러오기 시작...', 'ok');
     let url = 'https://api.spotify.com/v1/me/tracks?limit=50';
     let isFirst = true;
+    let consecutiveExisting = 0; // Track how many consecutive already-known songs we've seen
 
     while (url) {
       const data = await spotifyFetch(url);
 
       if (isFirst) {
         syncState.total = data.total;
-        syncLog('총 ' + data.total.toLocaleString() + '곡 — 약 ' + Math.ceil(data.total / 50) + '회 API 호출');
+        if (existingIds.size > 0) {
+          syncLog('기존 ' + existingIds.size.toLocaleString() + '곡 보유 — 새 곡만 빠르게 검색');
+        } else {
+          syncLog('총 ' + data.total.toLocaleString() + '곡 — 약 ' + Math.ceil(data.total / 50) + '회 API 호출');
+        }
         isFirst = false;
       }
 
@@ -981,15 +986,26 @@ async function fetchLikedSongs() {
           });
           syncState.newSongs++;
           existingIds.add(t.id);
+          consecutiveExisting = 0; // Reset counter when we find a new song
+        } else {
+          consecutiveExisting++;
         }
       }
 
       updateSyncUI();
-      url = data.next;
+
+      // OPTIMIZATION: If we already have songs and found 100+ consecutive existing ones,
+      // all remaining songs are older and already in our list — stop early
+      if (existingIds.size > 50 && consecutiveExisting >= 100) {
+        syncLog('✓ 새 곡 검색 완료 — 기존 곡 도달로 조기 종료', 'ok');
+        url = null; // Stop pagination
+      } else {
+        url = data.next;
+      }
 
       if (url) await sleep(80);
 
-      // FIX #1: Save every 500 songs properly using absolute threshold
+      // Save every 500 songs properly using absolute threshold
       if (syncState.loaded - lastSaveAt >= 500) {
         saveToStorage();
         lastSaveAt = syncState.loaded;
@@ -1286,7 +1302,7 @@ function renderTable() {
       const idx = start + i + 1;
       const genreHtml = s.genre
         ? s.genre.split(',').map(function(g) { return '<span class="genre-tag">' + esc(g.trim()) + '</span>'; }).join('')
-        : '<span style="color:var(--text-muted);font-size:12px">—</span>';
+        : '';
 
       html += '<tr data-id="' + esc(s.id) + '">'
         + '<td>' + idx + '</td>'
