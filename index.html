@@ -1,0 +1,1474 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ChordMap — Spotify Liked Songs Tracker</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0a0c;
+  --surface: #111114;
+  --surface-2: #18181c;
+  --surface-3: #222228;
+  --border: #2a2a32;
+  --border-hover: #3a3a44;
+  --text: #e8e8ec;
+  --text-dim: #8888a0;
+  --text-muted: #55556a;
+  --spotify: #1DB954;
+  --spotify-dim: #1a9e48;
+  --spotify-glow: rgba(29,185,84,0.15);
+  --accent: #6366f1;
+  --accent-dim: rgba(99,102,241,0.15);
+  --red: #ef4444;
+  --amber: #f59e0b;
+  --row-hover: rgba(255,255,255,0.02);
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Outfit', sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-hover); }
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(10,10,12,0.85);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  padding: 16px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.logo { display: flex; align-items: center; gap: 12px; }
+
+.logo-icon {
+  width: 36px; height: 36px;
+  background: linear-gradient(135deg, var(--spotify), #15803d);
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+}
+
+.logo h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; }
+.logo h1 span { color: var(--spotify); }
+
+.header-actions { display: flex; align-items: center; gap: 12px; }
+
+.btn {
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px; font-weight: 500;
+  padding: 8px 16px; border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-2); color: var(--text);
+  cursor: pointer; transition: all 0.2s;
+  display: flex; align-items: center; gap: 6px;
+}
+
+.btn:hover { border-color: var(--border-hover); background: var(--surface-3); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-spotify { background: var(--spotify); border-color: var(--spotify); color: #000; font-weight: 600; }
+.btn-spotify:hover:not(:disabled) { background: var(--spotify-dim); border-color: var(--spotify-dim); box-shadow: 0 0 20px var(--spotify-glow); }
+
+.btn-save { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.btn-save:hover { opacity: 0.9; box-shadow: 0 0 20px var(--accent-dim); }
+
+/* Sync Panel */
+.sync-panel {
+  display: none;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 16px 32px;
+}
+.sync-panel.active { display: block; }
+
+.sync-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+
+.sync-title { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+
+.spinner {
+  width: 14px; height: 14px;
+  border: 2px solid var(--border); border-top-color: var(--spotify);
+  border-radius: 50%; animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.sync-stats {
+  display: flex; gap: 16px;
+  font-size: 12px; color: var(--text-dim);
+  font-family: 'JetBrains Mono', monospace;
+  flex-wrap: wrap;
+}
+.sync-stats strong { color: var(--text); }
+
+.progress-track { height: 4px; background: var(--surface-3); border-radius: 2px; overflow: hidden; margin-bottom: 8px; }
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--spotify), #34d399);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+  width: 0%;
+}
+
+.sync-log {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; color: var(--text-muted);
+  max-height: 80px; overflow-y: auto; line-height: 1.6;
+}
+.sync-log .log-warn { color: var(--amber); }
+.sync-log .log-err { color: var(--red); }
+.sync-log .log-ok { color: var(--spotify); }
+
+/* Stats bar */
+.stats-bar {
+  padding: 12px 32px;
+  display: flex; align-items: center; gap: 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface); flex-wrap: wrap;
+}
+
+.stat { font-size: 12px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+.stat strong { color: var(--text); font-weight: 600; }
+
+.search-box { margin-left: auto; position: relative; }
+
+.search-box input {
+  font-family: 'Outfit', sans-serif; font-size: 13px;
+  padding: 6px 12px 6px 32px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--surface-2);
+  color: var(--text); width: 240px; outline: none; transition: all 0.2s;
+}
+.search-box input:focus { border-color: var(--spotify); box-shadow: 0 0 0 3px var(--spotify-glow); }
+
+.search-box::before {
+  content: '⌕'; position: absolute; left: 10px; top: 50%;
+  transform: translateY(-50%); color: var(--text-muted); font-size: 14px;
+}
+
+/* Pagination */
+.pagination-bar {
+  padding: 10px 32px;
+  display: flex; align-items: center; justify-content: center;
+  gap: 6px; border-bottom: 1px solid var(--border);
+  background: var(--surface); flex-wrap: wrap;
+}
+
+.pagination-bar .page-info {
+  font-size: 12px; color: var(--text-dim);
+  font-family: 'JetBrains Mono', monospace; margin: 0 12px;
+}
+
+.pagination-bar select {
+  font-family: 'Outfit', sans-serif; font-size: 12px;
+  padding: 4px 8px; border-radius: 4px;
+  border: 1px solid var(--border); background: var(--surface-2);
+  color: var(--text); outline: none; cursor: pointer; margin-left: 12px;
+}
+
+.btn-page {
+  font-family: 'JetBrains Mono', monospace; font-size: 12px;
+  padding: 4px 10px; border-radius: 4px;
+  border: 1px solid var(--border); background: var(--surface-2);
+  color: var(--text-dim); cursor: pointer; transition: all 0.15s;
+}
+.btn-page:hover:not(:disabled) { border-color: var(--spotify); color: var(--text); }
+.btn-page.active { background: var(--spotify); border-color: var(--spotify); color: #000; font-weight: 600; }
+.btn-page:disabled { opacity: 0.3; cursor: not-allowed; }
+
+/* Table */
+.table-wrapper { overflow-x: auto; padding: 0 16px 32px; }
+
+table { width: 100%; border-collapse: collapse; min-width: 1100px; }
+thead { position: sticky; top: 0; z-index: 10; }
+
+thead th {
+  background: var(--surface); padding: 10px 14px;
+  text-align: left; font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.8px;
+  color: var(--text-dim); border-bottom: 1px solid var(--border);
+  cursor: pointer; user-select: none; white-space: nowrap;
+  transition: color 0.2s; font-family: 'JetBrains Mono', monospace;
+}
+thead th:hover { color: var(--spotify); }
+
+thead th .sort-indicator { display: inline-block; margin-left: 4px; opacity: 0.4; font-size: 10px; }
+thead th.sorted .sort-indicator { opacity: 1; color: var(--spotify); }
+thead th.sorted { color: var(--spotify); }
+
+tbody tr { border-bottom: 1px solid rgba(42,42,50,0.5); transition: background 0.15s; }
+tbody tr:hover { background: var(--row-hover); }
+
+td { padding: 10px 14px; font-size: 13px; vertical-align: middle; }
+
+td:first-child {
+  color: var(--text-muted); font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; width: 50px;
+}
+
+.cell-track { font-weight: 500; color: var(--text); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cell-artist { color: var(--text-dim); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cell-genre { display: flex; gap: 4px; flex-wrap: wrap; }
+
+.genre-tag {
+  font-size: 11px; padding: 2px 8px; border-radius: 99px;
+  background: var(--surface-3); color: var(--text-dim);
+  border: 1px solid var(--border); white-space: nowrap;
+}
+
+.editable { position: relative; }
+
+.editable input {
+  font-family: 'JetBrains Mono', monospace; font-size: 12px;
+  width: 100%; padding: 4px 8px; border-radius: 4px;
+  border: 1px solid transparent; background: transparent;
+  color: var(--text); outline: none; transition: all 0.2s;
+}
+.editable input::placeholder { color: var(--text-muted); font-style: italic; }
+.editable input:hover { background: var(--surface-2); border-color: var(--border); }
+.editable input:focus { background: var(--surface-2); border-color: var(--spotify); box-shadow: 0 0 0 2px var(--spotify-glow); }
+.editable input.filled { color: var(--spotify); }
+
+/* Empty / no-results states */
+.empty-state { text-align: center; padding: 80px 32px; }
+.empty-state .icon { font-size: 48px; margin-bottom: 16px; opacity: 0.5; }
+.empty-state h2 { font-size: 22px; font-weight: 600; margin-bottom: 8px; }
+.empty-state p { color: var(--text-dim); font-size: 14px; margin-bottom: 24px; }
+.empty-state .empty-actions { display:flex;gap:8px;justify-content:center; }
+
+.no-results { text-align: center; padding: 60px 32px; display: none; }
+.no-results .icon { font-size: 36px; margin-bottom: 12px; opacity: 0.4; }
+.no-results h3 { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
+.no-results p { color: var(--text-dim); font-size: 13px; }
+
+.modal-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
+  z-index: 1000; justify-content: center; align-items: center;
+}
+.modal-overlay.active { display: flex; }
+
+.modal {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 16px; padding: 32px;
+  width: 460px; max-width: 90vw;
+  box-shadow: 0 25px 50px rgba(0,0,0,0.5);
+}
+.modal h2 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+.modal p { color: var(--text-dim); font-size: 13px; margin-bottom: 20px; line-height: 1.5; }
+.modal .input-group { margin-bottom: 16px; }
+
+.modal label {
+  display: block; font-size: 12px; font-weight: 500;
+  color: var(--text-dim); margin-bottom: 6px;
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+
+.modal input {
+  font-family: 'JetBrains Mono', monospace; font-size: 13px;
+  width: 100%; padding: 10px 12px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--surface-2);
+  color: var(--text); outline: none; transition: all 0.2s;
+}
+.modal input:focus { border-color: var(--spotify); box-shadow: 0 0 0 3px var(--spotify-glow); }
+#fetchGenreCheck { width: auto !important; padding: 0 !important; }
+
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 24px; }
+
+.tip-box {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 12px; margin-bottom: 16px;
+  font-size: 12px; color: var(--text-dim); line-height: 1.6;
+}
+.tip-box strong { color: var(--amber); }
+
+.toast {
+  position: fixed; bottom: 24px; right: 24px;
+  padding: 12px 20px; border-radius: 10px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  color: var(--text); font-size: 13px;
+  display: flex; align-items: center; gap: 8px;
+  transform: translateY(80px); opacity: 0;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 2000; box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+  max-width: 360px;
+}
+.toast.show { transform: translateY(0); opacity: 1; }
+.toast.success { border-left: 3px solid var(--spotify); }
+.toast.error { border-left: 3px solid var(--red); }
+.toast.info { border-left: 3px solid var(--accent); }
+
+/* ═══ MOBILE: 768px and below ═══ */
+@media (max-width: 768px) {
+  .header {
+    padding: 10px 16px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .logo h1 { font-size: 17px; }
+  .logo-icon { width: 30px; height: 30px; font-size: 15px; border-radius: 8px; }
+  .header-actions { gap: 6px; }
+  .header-actions .btn { padding: 6px 10px; font-size: 12px; }
+
+  .sync-panel { padding: 12px 16px; }
+  .sync-header { flex-direction: column; align-items: flex-start; }
+  .sync-stats { gap: 10px; font-size: 11px; }
+
+  .stats-bar {
+    padding: 10px 16px;
+    gap: 10px;
+  }
+  .stat { font-size: 11px; }
+  .search-box { margin-left: 0; width: 100%; margin-top: 4px; }
+  .search-box input { width: 100%; }
+
+  .pagination-bar {
+    padding: 8px 16px;
+    gap: 4px;
+  }
+  .btn-page { padding: 6px 10px; font-size: 11px; }
+  .pagination-bar select { font-size: 11px; margin-left: 6px; }
+
+  /* Hide table on mobile, show card view */
+  .table-wrapper { padding: 0; }
+  table { display: none; }
+  .empty-state { padding: 48px 16px; }
+  .empty-state h2 { font-size: 18px; }
+  .empty-state p { font-size: 13px; }
+  .empty-actions { flex-direction: column; }
+  .empty-actions .btn { width: 100%; justify-content: center; }
+  .no-results { padding: 40px 16px; }
+
+  /* Card view + mobile sort bar */
+  #cardView { display: block !important; }
+  .mobile-sort { display: flex !important; }
+
+  .modal { padding: 20px; width: 95vw; }
+  .modal h2 { font-size: 16px; }
+  .tip-box { font-size: 11px; padding: 10px; }
+  .modal input { font-size: 12px; padding: 8px 10px; }
+  .modal-actions { flex-direction: column; }
+  .modal-actions .btn { width: 100%; justify-content: center; }
+
+  .toast { bottom: 12px; right: 12px; left: 12px; max-width: none; font-size: 12px; }
+}
+
+/* Card View (mobile only by default, hidden on desktop) */
+#cardView { display: none; padding: 8px 12px 24px; }
+
+.song-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 8px;
+  transition: border-color 0.2s;
+}
+.song-card:active { border-color: var(--spotify); }
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.card-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border-radius: 4px;
+  padding: 2px 6px;
+  flex-shrink: 0;
+}
+
+.card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.3;
+  margin-bottom: 2px;
+  word-break: break-word;
+}
+
+.card-artist {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+
+.card-genres {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.card-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.card-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.card-field label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.card-field input {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.2s;
+  width: 100%;
+}
+.card-field input:focus { border-color: var(--spotify); }
+.card-field input.filled { color: var(--spotify); }
+.card-field input::placeholder { color: var(--text-muted); font-style: italic; font-size: 11px; }
+
+/* Keep table visible on desktop */
+@media (min-width: 769px) {
+  #cardView { display: none !important; }
+  .mobile-sort { display: none !important; }
+}
+
+/* Mobile sort bar */
+.mobile-sort {
+  display: none;
+  padding: 8px 12px;
+  gap: 6px;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mobile-sort-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.sort-chip {
+  font-family: 'Outfit', sans-serif;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-dim);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.sort-chip:active { background: var(--surface-3); }
+.sort-chip.active {
+  background: var(--spotify);
+  border-color: var(--spotify);
+  color: #000;
+  font-weight: 600;
+}
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="logo">
+    <div class="logo-icon">♪</div>
+    <h1>Chord<span>Map</span></h1>
+  </div>
+  <div class="header-actions">
+    <button class="btn" onclick="exportCSV()">⤓ CSV</button>
+    <button class="btn btn-save" onclick="saveData()">💾 저장</button>
+    <button class="btn btn-spotify" id="syncBtn" onclick="handleSync()">● 불러오기</button>
+  </div>
+</header>
+
+<div class="sync-panel" id="syncPanel">
+  <div class="sync-header">
+    <div class="sync-title">
+      <div class="spinner" id="syncSpinner"></div>
+      <span id="syncTitleText">Spotify 동기화 중...</span>
+    </div>
+    <div class="sync-stats">
+      <span>불러온 곡 <strong id="syncLoaded">0</strong></span>
+      <span>새로 추가 <strong id="syncNew">0</strong></span>
+      <span>API 호출 <strong id="syncCalls">0</strong></span>
+      <span>재시도 <strong id="syncRetries">0</strong></span>
+    </div>
+  </div>
+  <div class="progress-track">
+    <div class="progress-fill" id="progressFill"></div>
+  </div>
+  <div class="sync-log" id="syncLog"></div>
+</div>
+
+<div class="stats-bar">
+  <div class="stat">총 <strong id="totalCount">0</strong>곡</div>
+  <div class="stat">코드 입력 <strong id="filledCount">0</strong>곡</div>
+  <div class="stat">완성률 <strong id="completionRate">0%</strong></div>
+  <div class="search-box">
+    <input type="text" placeholder="곡명, 아티스트, 장르 검색..." id="searchInput" oninput="handleSearch()">
+  </div>
+</div>
+
+<div class="pagination-bar" id="paginationBar" style="display:none;">
+  <button class="btn-page" id="prevBtn" onclick="goPage(currentPage-1)">‹ 이전</button>
+  <div id="pageNumbers" style="display:flex;gap:4px;"></div>
+  <button class="btn-page" id="nextBtn" onclick="goPage(currentPage+1)">다음 ›</button>
+  <span class="page-info" id="pageInfo"></span>
+  <select id="pageSizeSelect" onchange="changePageSize(this.value)">
+    <option value="50">50곡</option>
+    <option value="100" selected>100곡</option>
+    <option value="200">200곡</option>
+    <option value="500">500곡</option>
+  </select>
+</div>
+
+<div class="table-wrapper">
+  <table id="mainTable">
+    <thead>
+      <tr>
+        <th style="cursor:default">#</th>
+        <th data-col="track" onclick="sortBy('track')">곡명 <span class="sort-indicator">↕</span></th>
+        <th data-col="artist" onclick="sortBy('artist')">아티스트 <span class="sort-indicator">↕</span></th>
+        <th data-col="chords" onclick="sortBy('chords')">코드진행 <span class="sort-indicator">↕</span></th>
+        <th data-col="key" onclick="sortBy('key')">키 <span class="sort-indicator">↕</span></th>
+        <th data-col="genre" onclick="sortBy('genre')">장르 <span class="sort-indicator">↕</span></th>
+        <th data-col="subgenre" onclick="sortBy('subgenre')">세부장르 <span class="sort-indicator">↕</span></th>
+        <th data-col="composer" onclick="sortBy('composer')">작곡가 <span class="sort-indicator">↕</span></th>
+        <th data-col="label" onclick="sortBy('label')">레이블 <span class="sort-indicator">↕</span></th>
+      </tr>
+    </thead>
+    <tbody id="tableBody"></tbody>
+  </table>
+
+  <!-- FIX #3: Separate empty-state (no data) vs no-results (search empty) -->
+  <div class="empty-state" id="emptyState">
+    <div class="icon">🎵</div>
+    <h2>아직 곡이 없습니다</h2>
+    <p>Spotify 계정을 연결하고 좋아요한 곡을 불러오세요.<br>6,000곡 이상도 안전하게 처리됩니다.</p>
+    <div class="empty-actions">
+      <button class="btn btn-spotify" onclick="handleSync()">● Spotify 연결</button>
+      <button class="btn" onclick="loadDemo()">데모 데이터 보기</button>
+    </div>
+  </div>
+
+  <div class="no-results" id="noResults">
+    <div class="icon">🔍</div>
+    <h3>검색 결과 없음</h3>
+    <p>다른 키워드로 검색해보세요.</p>
+  </div>
+</div>
+
+<!-- Mobile sort bar -->
+<div class="mobile-sort" id="mobileSortBar">
+  <span class="mobile-sort-label">정렬</span>
+  <button class="sort-chip" data-col="track" onclick="mobileSortBy('track')">곡명</button>
+  <button class="sort-chip" data-col="artist" onclick="mobileSortBy('artist')">아티스트</button>
+  <button class="sort-chip" data-col="genre" onclick="mobileSortBy('genre')">장르</button>
+  <button class="sort-chip" data-col="chords" onclick="mobileSortBy('chords')">코드진행</button>
+  <button class="sort-chip" data-col="key" onclick="mobileSortBy('key')">키</button>
+</div>
+
+<!-- Mobile card view -->
+<div id="cardView"></div>
+
+<div class="modal-overlay" id="authModal">
+  <div class="modal">
+    <h2>● Spotify 연결 설정</h2>
+    <p>Spotify Developer Dashboard에서 앱을 만들고 Client ID를 입력하세요.</p>
+    <div class="tip-box">
+      <strong>⚠ 6,000곡+ 대용량 안내</strong><br>
+      • 전체 불러오기에 약 2~5분 소요됩니다<br>
+      • Rate Limit(429) 시 자동 대기 후 재시도합니다<br>
+      • 500곡마다 중간 저장 — 중단해도 데이터 유지<br>
+      • 장르는 아티스트 50명씩 배치 호출로 가져옵니다
+    </div>
+    <div class="input-group">
+      <label>Client ID</label>
+      <input type="text" id="clientIdInput" placeholder="a1b2c3d4e5f6..." />
+    </div>
+    <div class="input-group">
+      <label>Redirect URI (자동 감지)</label>
+      <input type="text" id="redirectUri" readonly />
+    </div>
+    <div class="input-group" style="display:flex;align-items:center;gap:8px;">
+      <input type="checkbox" id="fetchGenreCheck" checked style="width:auto;padding:0;">
+      <span style="font-size:12px;color:var(--text-dim);">
+        장르 자동 가져오기 (API 호출 추가 발생)
+      </span>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">취소</button>
+      <button class="btn btn-spotify" onclick="startAuth()">연결하기</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ═══════════════════ STATE ═══════════════════
+let songs = [];
+let displaySongs = [];
+let currentSort = { col: null, dir: 'asc' };
+let currentPage = 1;
+let pageSize = 100;
+let accessToken = null;
+let isSyncing = false;
+let abortSync = false;
+// FIX #4: Remember genre preference outside modal
+let fetchGenreOnSync = true;
+
+const STORAGE_KEY = 'chordmap_songs';
+const TOKEN_KEY = 'chordmap_token';
+const TOKEN_EXPIRY_KEY = 'chordmap_token_expiry';
+const CLIENT_ID_KEY = 'chordmap_client_id';
+const GENRE_PREF_KEY = 'chordmap_fetch_genre';
+
+// ═══════════════════ INIT ═══════════════════
+window.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('redirectUri').value = window.location.origin + window.location.pathname;
+
+  // Load genre preference
+  const savedGenrePref = localStorage.getItem(GENRE_PREF_KEY);
+  if (savedGenrePref !== null) {
+    fetchGenreOnSync = savedGenrePref === 'true';
+    document.getElementById('fetchGenreCheck').checked = fetchGenreOnSync;
+  }
+
+  // Keep preference in sync when checkbox changes
+  document.getElementById('fetchGenreCheck').addEventListener('change', function() {
+    fetchGenreOnSync = this.checked;
+    localStorage.setItem(GENRE_PREF_KEY, String(this.checked));
+  });
+
+  // OAuth redirect — token comes back in URL hash
+  const hash = window.location.hash;
+  if (hash) {
+    const params = new URLSearchParams(hash.substring(1));
+    const token = params.get('access_token');
+    const expiresIn = parseInt(params.get('expires_in') || '3600', 10);
+    if (token) {
+      accessToken = token;
+      sessionStorage.setItem(TOKEN_KEY, token);
+      sessionStorage.setItem(TOKEN_EXPIRY_KEY, String(Date.now() + expiresIn * 1000));
+      window.history.replaceState(null, '', window.location.pathname);
+      showToast('Spotify 연결 성공!', 'success');
+      // FIX #4: Use saved preference, not checkbox state (modal wasn't shown)
+      fetchLikedSongs();
+    }
+  }
+
+  if (!accessToken) {
+    accessToken = sessionStorage.getItem(TOKEN_KEY);
+    // Check if token has expired
+    var expiry = parseInt(sessionStorage.getItem(TOKEN_EXPIRY_KEY) || '0', 10);
+    if (accessToken && expiry && Date.now() > expiry) {
+      accessToken = null;
+      sessionStorage.removeItem(TOKEN_KEY);
+      sessionStorage.removeItem(TOKEN_EXPIRY_KEY);
+    }
+  }
+  loadFromStorage();
+  rebuildSongMap();
+  displaySongs = [...songs];
+  renderTable();
+  updateStats();
+});
+
+// ═══════════════════ CHUNKED STORAGE ═══════════════════
+// FIX #5: Atomic-safe save — write new data first, then clean old
+
+function loadFromStorage() {
+  try {
+    const meta = localStorage.getItem(STORAGE_KEY + '_meta');
+    if (meta) {
+      const { chunks } = JSON.parse(meta);
+      let json = '';
+      for (let i = 0; i < chunks; i++) {
+        const chunk = localStorage.getItem(STORAGE_KEY + '_' + i);
+        if (chunk === null) throw new Error('Missing chunk ' + i);
+        json += chunk;
+      }
+      songs = JSON.parse(json);
+      return;
+    }
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) songs = JSON.parse(saved);
+  } catch (e) {
+    console.warn('Storage load error:', e);
+    songs = [];
+  }
+}
+
+function saveToStorage() {
+  try {
+    const json = JSON.stringify(songs);
+    const CHUNK = 2 * 1024 * 1024;
+
+    // Read old meta BEFORE writing new data (for cleanup after success)
+    const oldMeta = localStorage.getItem(STORAGE_KEY + '_meta');
+    let oldChunkCount = 0;
+    if (oldMeta) {
+      try { oldChunkCount = JSON.parse(oldMeta).chunks; } catch(e) {}
+    }
+
+    // Clean up any orphaned temp chunks from a previous failed save
+    for (let i = 0; i < 20; i++) {
+      if (localStorage.getItem(STORAGE_KEY + '_new_' + i) !== null) {
+        localStorage.removeItem(STORAGE_KEY + '_new_' + i);
+      } else {
+        break;
+      }
+    }
+
+    if (json.length > CHUNK) {
+      const numChunks = Math.ceil(json.length / CHUNK);
+      // Write new chunks first (using temp prefix to avoid collision)
+      for (let i = 0; i < numChunks; i++) {
+        localStorage.setItem(STORAGE_KEY + '_new_' + i, json.slice(i * CHUNK, (i + 1) * CHUNK));
+      }
+      // Commit: rename new chunks to final keys
+      for (let i = 0; i < numChunks; i++) {
+        const data = localStorage.getItem(STORAGE_KEY + '_new_' + i);
+        localStorage.setItem(STORAGE_KEY + '_' + i, data);
+        localStorage.removeItem(STORAGE_KEY + '_new_' + i);
+      }
+      localStorage.setItem(STORAGE_KEY + '_meta', JSON.stringify({ chunks: numChunks }));
+      // Clean up any extra old chunks beyond new count
+      for (let i = numChunks; i < oldChunkCount; i++) {
+        localStorage.removeItem(STORAGE_KEY + '_' + i);
+      }
+      localStorage.removeItem(STORAGE_KEY);
+    } else {
+      localStorage.setItem(STORAGE_KEY, json);
+      // Clean up old chunked storage
+      if (oldChunkCount > 0) {
+        for (let i = 0; i < oldChunkCount; i++) localStorage.removeItem(STORAGE_KEY + '_' + i);
+      }
+      localStorage.removeItem(STORAGE_KEY + '_meta');
+    }
+  } catch (e) {
+    console.error('Save error:', e);
+    showToast('저장 실패 — 저장 공간 부족일 수 있습니다', 'error');
+  }
+}
+
+// ═══════════════════ SPOTIFY API — RESILIENT FETCH ═══════════════════
+let syncState = { loaded: 0, newSongs: 0, apiCalls: 0, retries: 0, total: null, phase: 'tracks' };
+
+function resetSyncState() {
+  syncState = { loaded: 0, newSongs: 0, apiCalls: 0, retries: 0, total: null, phase: 'tracks' };
+}
+
+async function spotifyFetch(url, retryCount = 0) {
+  const MAX_RETRIES = 6;
+
+  if (abortSync) throw new Error('ABORTED');
+
+  try {
+    const res = await fetch(url, {
+      headers: { 'Authorization': 'Bearer ' + accessToken }
+    });
+
+    if (res.status === 401) {
+      accessToken = null;
+      sessionStorage.removeItem(TOKEN_KEY);
+      sessionStorage.removeItem(TOKEN_EXPIRY_KEY);
+      throw new Error('TOKEN_EXPIRED');
+    }
+
+    if (res.status === 429) {
+      const retryAfter = parseInt(res.headers.get('Retry-After') || '3', 10);
+      const waitMs = (retryAfter + 1) * 1000;
+      syncLog('⏳ Rate limit — ' + (retryAfter+1) + '초 대기 후 재시도', 'warn');
+      syncState.retries++;
+      updateSyncUI();
+      await sleep(waitMs);
+      return spotifyFetch(url, retryCount);
+    }
+
+    if (res.status >= 500) {
+      if (retryCount >= MAX_RETRIES) throw new Error('서버 오류 ' + res.status + ' (' + MAX_RETRIES + '회 재시도 실패)');
+      const wait = Math.min(1000 * Math.pow(2, retryCount), 32000);
+      syncLog('⚠ 서버 오류 ' + res.status + ' — ' + Math.round(wait/1000) + '초 후 재시도 (' + (retryCount+1) + '/' + MAX_RETRIES + ')', 'warn');
+      syncState.retries++;
+      updateSyncUI();
+      await sleep(wait);
+      return spotifyFetch(url, retryCount + 1);
+    }
+
+    if (!res.ok) throw new Error('API 오류: ' + res.status);
+
+    syncState.apiCalls++;
+    updateSyncUI();
+    return res.json();
+
+  } catch (err) {
+    if (err.message === 'TOKEN_EXPIRED' || err.message === 'ABORTED') throw err;
+
+    if (retryCount < MAX_RETRIES) {
+      const wait = Math.min(1000 * Math.pow(2, retryCount), 32000);
+      syncLog('⚠ 네트워크 오류 — ' + Math.round(wait/1000) + '초 후 재시도', 'warn');
+      syncState.retries++;
+      updateSyncUI();
+      await sleep(wait);
+      return spotifyFetch(url, retryCount + 1);
+    }
+    throw err;
+  }
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ═══════════════════ SYNC UI ═══════════════════
+function updateSyncUI() {
+  document.getElementById('syncLoaded').textContent = syncState.loaded.toLocaleString();
+  document.getElementById('syncNew').textContent = syncState.newSongs.toLocaleString();
+  document.getElementById('syncCalls').textContent = syncState.apiCalls.toLocaleString();
+  document.getElementById('syncRetries').textContent = syncState.retries.toLocaleString();
+
+  const pct = syncState.total ? Math.min(100, Math.round((syncState.loaded / syncState.total) * 100)) : 0;
+  document.getElementById('progressFill').style.width = pct + '%';
+
+  const phaseLabel = syncState.phase === 'tracks' ? '곡 불러오기'
+    : syncState.phase === 'genres' ? '장르 매칭' : '완료';
+
+  document.getElementById('syncTitleText').textContent =
+    syncState.phase === 'done'
+      ? '✓ 동기화 완료 — ' + syncState.newSongs + '곡 추가'
+      : phaseLabel + ' 중... (' + pct + '%)';
+}
+
+function syncLog(msg, type) {
+  const el = document.getElementById('syncLog');
+  const cls = type === 'warn' ? 'log-warn' : type === 'err' ? 'log-err' : type === 'ok' ? 'log-ok' : '';
+  const div = document.createElement('div');
+  div.className = cls;
+  div.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+}
+
+function showSyncPanel(show) {
+  document.getElementById('syncPanel').classList.toggle('active', show);
+  if (show) document.getElementById('syncLog').innerHTML = '';
+}
+
+// ═══════════════════ MAIN SYNC ═══════════════════
+async function fetchLikedSongs() {
+  if (isSyncing) return;
+  if (!accessToken) { handleSync(); return; }
+
+  isSyncing = true;
+  abortSync = false;
+  resetSyncState();
+  showSyncPanel(true);
+  document.getElementById('syncSpinner').style.display = '';
+
+  const syncBtn = document.getElementById('syncBtn');
+  syncBtn.disabled = true;
+  syncBtn.textContent = '동기화 중...';
+
+  const existingIds = new Set(songs.map(s => s.id));
+  // FIX #1: Track last save point for intermediate saves
+  let lastSaveAt = 0;
+
+  try {
+    syncLog('🎵 좋아요 목록 불러오기 시작...', 'ok');
+    let url = 'https://api.spotify.com/v1/me/tracks?limit=50';
+    let isFirst = true;
+
+    while (url) {
+      const data = await spotifyFetch(url);
+
+      if (isFirst) {
+        syncState.total = data.total;
+        syncLog('총 ' + data.total.toLocaleString() + '곡 — 약 ' + Math.ceil(data.total / 50) + '회 API 호출');
+        isFirst = false;
+      }
+
+      for (const item of data.items) {
+        const t = item.track;
+        if (!t || !t.id) continue;
+        syncState.loaded++;
+
+        if (!existingIds.has(t.id)) {
+          songs.push({
+            id: t.id,
+            track: t.name,
+            artist: t.artists.map(a => a.name).join(', '),
+            artistIds: t.artists.map(a => a.id),
+            genre: '',
+            chords: '',
+            key: '',
+            subgenre: '',
+            composer: '',
+            label: '',
+            addedAt: item.added_at
+          });
+          syncState.newSongs++;
+          existingIds.add(t.id);
+        }
+      }
+
+      updateSyncUI();
+      url = data.next;
+
+      if (url) await sleep(80);
+
+      // FIX #1: Save every 500 songs properly using absolute threshold
+      if (syncState.loaded - lastSaveAt >= 500) {
+        saveToStorage();
+        lastSaveAt = syncState.loaded;
+        syncLog('💾 중간 저장 — ' + syncState.loaded.toLocaleString() + '곡 처리');
+      }
+    }
+
+    syncLog('✓ 곡 목록 완료: ' + syncState.loaded.toLocaleString() + '곡 (신규 ' + syncState.newSongs + '곡)', 'ok');
+
+    // FIX #4: Use saved preference variable, not DOM checkbox
+    if (fetchGenreOnSync && syncState.newSongs > 0) {
+      syncState.phase = 'genres';
+      updateSyncUI();
+      await enrichGenresBatch();
+    }
+
+    syncState.phase = 'done';
+    updateSyncUI();
+    syncLog('🎉 완료!', 'ok');
+
+    saveToStorage();
+    rebuildSongMap();
+    displaySongs = [...songs];
+    renderTable();
+    showToast(syncState.newSongs + '곡 새로 추가됨', 'success');
+
+  } catch (err) {
+    if (err.message === 'TOKEN_EXPIRED') {
+      showToast('토큰 만료 — 다시 연결해주세요', 'error');
+      syncLog('✗ 토큰 만료', 'err');
+    } else if (err.message !== 'ABORTED') {
+      showToast('오류: ' + err.message, 'error');
+      syncLog('✗ ' + err.message, 'err');
+    }
+    saveToStorage();
+    rebuildSongMap();
+    displaySongs = [...songs];
+    renderTable();
+  } finally {
+    isSyncing = false;
+    syncBtn.disabled = false;
+    syncBtn.textContent = '● 불러오기';
+    document.getElementById('syncSpinner').style.display = 'none';
+  }
+}
+
+// ═══════════════════ GENRE BATCH ═══════════════════
+async function enrichGenresBatch() {
+  const needGenre = songs.filter(s => !s.genre && s.artistIds && s.artistIds.length > 0);
+  if (!needGenre.length) { syncLog('장르 매칭 스킵 — 이미 완료'); return; }
+
+  const map = {};
+  for (const s of needGenre) {
+    for (const aid of s.artistIds) {
+      if (!map[aid]) map[aid] = [];
+      map[aid].push(s);
+    }
+  }
+
+  const ids = Object.keys(map);
+  syncLog('🏷 아티스트 ' + ids.length.toLocaleString() + '명 장르 조회 (' + Math.ceil(ids.length/50) + '회 배치)');
+
+  syncState.loaded = 0;
+  syncState.total = ids.length;
+  let lastSaveAt = 0;
+
+  for (let i = 0; i < ids.length; i += 50) {
+    if (abortSync) break;
+
+    const batch = ids.slice(i, i + 50);
+    try {
+      const data = await spotifyFetch('https://api.spotify.com/v1/artists?ids=' + batch.join(','));
+      for (const artist of (data.artists || [])) {
+        if (!artist) continue;
+        const genres = artist.genres && artist.genres.length > 0
+          ? artist.genres.slice(0, 3).join(', ')
+          : '';
+        for (const song of (map[artist.id] || [])) {
+          if (!song.genre) song.genre = genres;
+        }
+      }
+    } catch (e) {
+      if (e.message === 'TOKEN_EXPIRED' || e.message === 'ABORTED') throw e;
+      syncLog('⚠ 배치 오류 건너뜀: ' + e.message, 'warn');
+    }
+
+    syncState.loaded += batch.length;
+    updateSyncUI();
+    await sleep(80);
+
+    if (syncState.loaded - lastSaveAt >= 500) {
+      saveToStorage();
+      lastSaveAt = syncState.loaded;
+    }
+  }
+
+  syncLog('✓ 장르 매칭 완료', 'ok');
+}
+
+// ═══════════════════ AUTH ═══════════════════
+function handleSync() {
+  if (accessToken) { fetchLikedSongs(); return; }
+  document.getElementById('authModal').classList.add('active');
+  const saved = localStorage.getItem(CLIENT_ID_KEY);
+  if (saved) document.getElementById('clientIdInput').value = saved;
+}
+
+function closeModal() { document.getElementById('authModal').classList.remove('active'); }
+
+// Close modal on Escape key or clicking outside
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeModal();
+});
+document.getElementById('authModal').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+
+function startAuth() {
+  const cid = document.getElementById('clientIdInput').value.trim();
+  if (!cid) { showToast('Client ID를 입력해주세요', 'error'); return; }
+  localStorage.setItem(CLIENT_ID_KEY, cid);
+
+  // Save genre preference before redirect
+  fetchGenreOnSync = document.getElementById('fetchGenreCheck').checked;
+  localStorage.setItem(GENRE_PREF_KEY, String(fetchGenreOnSync));
+
+  const redir = window.location.origin + window.location.pathname;
+  window.location.href =
+    'https://accounts.spotify.com/authorize?' +
+    'client_id=' + cid +
+    '&response_type=token' +
+    '&redirect_uri=' + encodeURIComponent(redir) +
+    '&scope=user-library-read' +
+    '&show_dialog=true';
+}
+
+// ═══════════════════ TABLE (PAGINATED) ═══════════════════
+function isMobileView() {
+  return window.matchMedia('(max-width: 768px)').matches;
+}
+
+// Re-render on viewport change (rotation, resize)
+var resizeTimer;
+window.addEventListener('resize', function() {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(function() {
+    renderTable();
+  }, 200);
+});
+
+function renderTable() {
+  var mobile = isMobileView();
+  const tbody = document.getElementById('tableBody');
+  const cardView = document.getElementById('cardView');
+  const emptyEl = document.getElementById('emptyState');
+  const noResultsEl = document.getElementById('noResults');
+  const pagBar = document.getElementById('paginationBar');
+
+  // FIX #3: Properly distinguish empty data vs no search results
+  if (displaySongs.length === 0) {
+    tbody.innerHTML = '';
+    cardView.innerHTML = '';
+    pagBar.style.display = 'none';
+
+    if (songs.length === 0) {
+      emptyEl.style.display = 'block';
+      noResultsEl.style.display = 'none';
+    } else {
+      emptyEl.style.display = 'none';
+      noResultsEl.style.display = 'block';
+    }
+    updateStats();
+    return;
+  }
+
+  emptyEl.style.display = 'none';
+  noResultsEl.style.display = 'none';
+
+  const totalPages = Math.ceil(displaySongs.length / pageSize);
+  if (currentPage > totalPages) currentPage = totalPages;
+  if (currentPage < 1) currentPage = 1;
+
+  const start = (currentPage - 1) * pageSize;
+  const end = Math.min(start + pageSize, displaySongs.length);
+  const page = displaySongs.slice(start, end);
+
+  // Desktop: table rows (skip on mobile)
+  if (!mobile) {
+    let html = '';
+    for (let i = 0; i < page.length; i++) {
+      const s = page[i];
+      const idx = start + i + 1;
+      const genreHtml = s.genre
+        ? s.genre.split(',').map(function(g) { return '<span class="genre-tag">' + esc(g.trim()) + '</span>'; }).join('')
+        : '<span style="color:var(--text-muted);font-size:12px">—</span>';
+
+      html += '<tr data-id="' + esc(s.id) + '">'
+        + '<td>' + idx + '</td>'
+        + '<td class="cell-track" title="' + esc(s.track) + '">' + esc(s.track) + '</td>'
+        + '<td class="cell-artist" title="' + esc(s.artist) + '">' + esc(s.artist) + '</td>'
+        + '<td class="editable"><input value="' + esc(s.chords) + '" placeholder="I-V-vi-IV" class="' + (s.chords?'filled':'') + '" data-id="' + esc(s.id) + '" data-field="chords"></td>'
+        + '<td class="editable"><input value="' + esc(s.key) + '" placeholder="Cm" class="' + (s.key?'filled':'') + '" data-id="' + esc(s.id) + '" data-field="key" style="width:60px"></td>'
+        + '<td class="cell-genre">' + genreHtml + '</td>'
+        + '<td class="editable"><input value="' + esc(s.subgenre) + '" placeholder="세부장르" class="' + (s.subgenre?'filled':'') + '" data-id="' + esc(s.id) + '" data-field="subgenre"></td>'
+        + '<td class="editable"><input value="' + esc(s.composer) + '" placeholder="작곡가" class="' + (s.composer?'filled':'') + '" data-id="' + esc(s.id) + '" data-field="composer"></td>'
+        + '<td class="editable"><input value="' + esc(s.label) + '" placeholder="레이블" class="' + (s.label?'filled':'') + '" data-id="' + esc(s.id) + '" data-field="label"></td>'
+        + '</tr>';
+    }
+    tbody.innerHTML = html;
+    cardView.innerHTML = '';
+  } else {
+    // Mobile: card view (skip table)
+    tbody.innerHTML = '';
+    let cards = '';
+    for (let i = 0; i < page.length; i++) {
+      const s = page[i];
+      const idx = start + i + 1;
+      const genreCards = s.genre
+        ? s.genre.split(',').map(function(g) { return '<span class="genre-tag">' + esc(g.trim()) + '</span>'; }).join('')
+        : '';
+
+      cards += '<div class="song-card">'
+        + '<div class="card-header">'
+        + '<div><div class="card-title">' + esc(s.track) + '</div>'
+        + '<div class="card-artist">' + esc(s.artist) + '</div></div>'
+        + '<span class="card-num">' + idx + '</span>'
+        + '</div>'
+        + (genreCards ? '<div class="card-genres">' + genreCards + '</div>' : '')
+        + '<div class="card-fields">'
+        + '<div class="card-field"><label>코드진행</label><input value="' + esc(s.chords) + '" placeholder="I-V-vi-IV" class="' + (s.chords?'filled':'') + '" data-id="' + esc(s.id) + '" data-field="chords"></div>'
+        + '<div class="card-field"><label>키</label><input value="' + esc(s.key) + '" placeholder="Cm" class="' + (s.key?'filled':'') + '" data-id="' + esc(s.id) + '" data-field="key"></div>'
+        + '<div class="card-field"><label>세부장르</label><input value="' + esc(s.subgenre) + '" placeholder="세부장르" class="' + (s.subgenre?'filled':'') + '" data-id="' + esc(s.id) + '" data-field="subgenre"></div>'
+        + '<div class="card-field"><label>작곡가</label><input value="' + esc(s.composer) + '" placeholder="작곡가" class="' + (s.composer?'filled':'') + '" data-id="' + esc(s.id) + '" data-field="composer"></div>'
+        + '<div class="card-field" style="grid-column:1/-1"><label>레이블</label><input value="' + esc(s.label) + '" placeholder="레이블" class="' + (s.label?'filled':'') + '" data-id="' + esc(s.id) + '" data-field="label"></div>'
+        + '</div></div>';
+    }
+    cardView.innerHTML = cards;
+  }
+
+  // Pagination
+  if (displaySongs.length > pageSize) {
+    pagBar.style.display = 'flex';
+    document.getElementById('prevBtn').disabled = currentPage <= 1;
+    document.getElementById('nextBtn').disabled = currentPage >= totalPages;
+    document.getElementById('pageInfo').textContent = (start+1) + '–' + end + ' / ' + displaySongs.length.toLocaleString() + '곡';
+
+    const pn = document.getElementById('pageNumbers');
+    pn.innerHTML = '';
+    for (const p of pageRange(currentPage, totalPages)) {
+      if (p === '…') {
+        const sp = document.createElement('span');
+        sp.textContent = '···';
+        sp.style.cssText = 'color:var(--text-muted);padding:0 2px;font-size:11px;';
+        pn.appendChild(sp);
+      } else {
+        const b = document.createElement('button');
+        b.className = 'btn-page' + (p === currentPage ? ' active' : '');
+        b.textContent = p;
+        b.onclick = (function(page) { return function() { goPage(page); }; })(p);
+        pn.appendChild(b);
+      }
+    }
+  } else {
+    pagBar.style.display = 'none';
+  }
+
+  updateStats();
+}
+
+function pageRange(cur, tot) {
+  if (tot <= 7) return Array.from({length:tot}, function(_,i) { return i+1; });
+  var p = [1];
+  if (cur > 3) p.push('…');
+  for (var i = Math.max(2, cur-1); i <= Math.min(tot-1, cur+1); i++) p.push(i);
+  if (cur < tot-2) p.push('…');
+  p.push(tot);
+  return p;
+}
+
+function goPage(p) { currentPage = p; renderTable(); window.scrollTo({top:0,behavior:'smooth'}); }
+function changePageSize(v) { pageSize = parseInt(v); currentPage = 1; renderTable(); }
+
+// FIX #6: Escape single quotes too for safety in HTML attributes
+function esc(s) {
+  if (!s) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// ═══════════════════ EDIT (event delegation) ═══════════════════
+// FIX #2: Use song ID lookup via Map for O(1) performance with 6000+ songs
+var songMap = {};
+function rebuildSongMap() {
+  songMap = {};
+  for (var i = 0; i < songs.length; i++) {
+    songMap[songs[i].id] = songs[i];
+  }
+}
+
+document.getElementById('tableBody').addEventListener('change', function(e) {
+  var inp = e.target;
+  if (inp.tagName !== 'INPUT') return;
+  var id = inp.dataset.id;
+  var field = inp.dataset.field;
+  if (!id || !field) return;
+
+  var song = songMap[id];
+  if (song) {
+    song[field] = inp.value;
+    inp.className = inp.value ? 'filled' : '';
+    autoSave();
+    updateStats();
+  }
+});
+
+// Same event delegation for mobile card view
+document.getElementById('cardView').addEventListener('change', function(e) {
+  var inp = e.target;
+  if (inp.tagName !== 'INPUT') return;
+  var id = inp.dataset.id;
+  var field = inp.dataset.field;
+  if (!id || !field) return;
+
+  var song = songMap[id];
+  if (song) {
+    song[field] = inp.value;
+    inp.className = inp.value ? 'filled' : '';
+    autoSave();
+    updateStats();
+  }
+});
+
+var saveTimeout;
+function autoSave() { clearTimeout(saveTimeout); saveTimeout = setTimeout(function() { saveToStorage(); }, 1000); }
+function saveData() { saveToStorage(); showToast('저장 완료!', 'success'); }
+
+// ═══════════════════ SORT ═══════════════════
+function sortBy(col) {
+  if (currentSort.col === col) {
+    if (currentSort.dir === 'asc') currentSort.dir = 'desc';
+    else { currentSort.col = null; currentSort.dir = 'asc'; }
+  } else {
+    currentSort.col = col;
+    currentSort.dir = 'asc';
+  }
+
+  document.querySelectorAll('thead th').forEach(function(th) {
+    th.classList.remove('sorted');
+    var ind = th.querySelector('.sort-indicator');
+    if (ind) ind.textContent = '↕';
+  });
+
+  if (currentSort.col) {
+    var th = document.querySelector('th[data-col="'+col+'"]');
+    if (th) { th.classList.add('sorted'); th.querySelector('.sort-indicator').textContent = currentSort.dir==='asc'?'↑':'↓'; }
+  }
+
+  applySortToDisplay();
+  currentPage = 1;
+  renderTable();
+  updateMobileSortChips();
+}
+
+function mobileSortBy(col) {
+  sortBy(col);
+}
+
+function updateMobileSortChips() {
+  var chips = document.querySelectorAll('.sort-chip');
+  var labels = { track:'곡명', artist:'아티스트', genre:'장르', chords:'코드진행', key:'키', subgenre:'세부장르', composer:'작곡가', label:'레이블' };
+  chips.forEach(function(chip) {
+    var col = chip.dataset.col;
+    if (col === currentSort.col) {
+      chip.classList.add('active');
+      chip.textContent = labels[col] + (currentSort.dir === 'asc' ? ' ↑' : ' ↓');
+    } else {
+      chip.classList.remove('active');
+      chip.textContent = labels[col] || col;
+    }
+  });
+}
+
+// ═══════════════════ SEARCH ═══════════════════
+var searchTimeout;
+function handleSearch() { clearTimeout(searchTimeout); searchTimeout = setTimeout(filterTable, 200); }
+
+function filterTable() {
+  var q = document.getElementById('searchInput').value.toLowerCase().trim();
+  displaySongs = q
+    ? songs.filter(function(s) {
+        return s.track.toLowerCase().indexOf(q) !== -1
+          || s.artist.toLowerCase().indexOf(q) !== -1
+          || s.genre.toLowerCase().indexOf(q) !== -1
+          || (s.chords||'').toLowerCase().indexOf(q) !== -1
+          || (s.key||'').toLowerCase().indexOf(q) !== -1
+          || (s.subgenre||'').toLowerCase().indexOf(q) !== -1
+          || (s.composer||'').toLowerCase().indexOf(q) !== -1
+          || (s.label||'').toLowerCase().indexOf(q) !== -1;
+      })
+    : songs.slice();
+
+  // Re-apply current sort to filtered results
+  applySortToDisplay();
+  currentPage = 1;
+  renderTable();
+}
+
+function applySortToDisplay() {
+  if (currentSort.col) {
+    var col = currentSort.col;
+    var dir = currentSort.dir;
+    displaySongs.sort(function(a,b) {
+      var va = (a[col]||'').toLowerCase(), vb = (b[col]||'').toLowerCase();
+      if (!va && !vb) return 0;
+      if (!va) return 1;
+      if (!vb) return -1;
+      return va < vb ? (dir==='asc'?-1:1) : va > vb ? (dir==='asc'?1:-1) : 0;
+    });
+  } else {
+    displaySongs.sort(function(a,b) { return new Date(b.addedAt||0) - new Date(a.addedAt||0); });
+  }
+}
+
+// ═══════════════════ STATS ═══════════════════
+function updateStats() {
+  document.getElementById('totalCount').textContent = songs.length.toLocaleString();
+  var f = songs.filter(function(s) { return s.chords; }).length;
+  document.getElementById('filledCount').textContent = f.toLocaleString();
+  document.getElementById('completionRate').textContent = (songs.length ? Math.round(f/songs.length*100) : 0) + '%';
+}
+
+// ═══════════════════ EXPORT ═══════════════════
+// FIX #7: Delay URL.revokeObjectURL to ensure download starts
+function exportCSV() {
+  if (!songs.length) { showToast('내보낼 곡이 없습니다', 'error'); return; }
+  var h = ['곡명','아티스트','코드진행','키','장르','세부장르','작곡가','레이블'];
+  var rows = songs.map(function(s) {
+    return [s.track,s.artist,s.chords,s.key,s.genre,s.subgenre,s.composer,s.label]
+      .map(function(v) { return '"'+(v||'').replace(/"/g,'""')+'"'; }).join(',');
+  });
+  var blob = new Blob(['\uFEFF'+h.join(',')+'\n'+rows.join('\n')], {type:'text/csv;charset=utf-8;'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'chordmap_'+new Date().toISOString().slice(0,10)+'.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function() { URL.revokeObjectURL(url); }, 5000);
+  showToast('CSV 내보내기 완료 (' + songs.length.toLocaleString() + '곡)', 'success');
+}
+
+// ═══════════════════ TOAST ═══════════════════
+function showToast(msg, type) {
+  var t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast ' + (type||'info') + ' show';
+  clearTimeout(t._t);
+  t._t = setTimeout(function() { t.classList.remove('show'); }, 3000);
+}
+
+// ═══════════════════ DEMO ═══════════════════
+function loadDemo() {
+  var artists = [
+    {n:'The Weeknd',g:'synth-pop, canadian pop'},{n:'Queen',g:'classic rock, glam rock'},
+    {n:'Ed Sheeran',g:'pop, uk pop'},{n:'Billie Eilish',g:'electropop, art pop'},
+    {n:'BTS',g:'k-pop, pop'},{n:'Dua Lipa',g:'pop, dance pop'},
+    {n:'Harry Styles',g:'pop rock'},{n:'Taylor Swift',g:'pop, country pop'},
+    {n:'Drake',g:'canadian hip hop, rap'},{n:'Olivia Rodrigo',g:'pop, indie pop'},
+    {n:'NewJeans',g:'k-pop, alt pop'},{n:'IU',g:'k-pop, korean ballad'}
+  ];
+  var tracks = ['Blinding Lights','Bohemian Rhapsody','Shape of You','Bad Guy','Dynamite',
+    'Levitating','Watermelon Sugar','Anti-Hero','God\'s Plan','drivers license','Starboy',
+    'Save Your Tears','As It Was','Cruel Summer','One Dance','good 4 u','Peaches','Stay',
+    'Vampire','Flowers','Kill Bill','Unholy','About Damn Time','Heat Waves','Shivers',
+    'Hype Boy','Celebrity','Butter','Permission to Dance','Ditto'];
+
+  songs = [];
+  for (var i = 0; i < 200; i++) {
+    var a = artists[i % artists.length];
+    var t = tracks[i % tracks.length] + (i >= tracks.length ? ' (v' + (Math.floor(i/tracks.length)+1) + ')' : '');
+    songs.push({
+      id: 'demo_'+i, track: t, artist: a.n, artistIds: [],
+      genre: a.g, chords: i<3 ? ['I-V-vi-IV','Fm-Cm-Eb-Bb','C#m-F#m-A-B'][i] : '',
+      key: i<3 ? ['C','Fm','C#m'][i] : '',
+      subgenre:'', composer:'', label:'',
+      addedAt: new Date(Date.now()-i*86400000).toISOString()
+    });
+  }
+  rebuildSongMap();
+  displaySongs = songs.slice();
+  currentPage = 1;
+  renderTable();
+  saveToStorage();
+  showToast('데모 200곡 로드 완료', 'success');
+}
+
+// Initial songMap build from loaded data
+rebuildSongMap();
+</script>
+</body>
+</html>
