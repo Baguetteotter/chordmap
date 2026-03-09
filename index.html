@@ -670,11 +670,13 @@ let fetchGenreOnSync = true;
 const STORAGE_KEY = 'chordmap_songs';
 const TOKEN_KEY = 'chordmap_token';
 const TOKEN_EXPIRY_KEY = 'chordmap_token_expiry';
+const REFRESH_TOKEN_KEY = 'chordmap_refresh_token';
+const CODE_VERIFIER_KEY = 'chordmap_code_verifier';
 const CLIENT_ID_KEY = 'chordmap_client_id';
 const GENRE_PREF_KEY = 'chordmap_fetch_genre';
 
 // ═══════════════════ INIT ═══════════════════
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('redirectUri').value = window.location.origin + window.location.pathname;
 
   // Load genre preference
@@ -690,20 +692,19 @@ window.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem(GENRE_PREF_KEY, String(this.checked));
   });
 
-  // OAuth redirect — token comes back in URL hash
-  const hash = window.location.hash;
-  if (hash) {
-    const params = new URLSearchParams(hash.substring(1));
-    const token = params.get('access_token');
-    const expiresIn = parseInt(params.get('expires_in') || '3600', 10);
-    if (token) {
-      accessToken = token;
-      sessionStorage.setItem(TOKEN_KEY, token);
-      sessionStorage.setItem(TOKEN_EXPIRY_KEY, String(Date.now() + expiresIn * 1000));
-      window.history.replaceState(null, '', window.location.pathname);
+  // PKCE OAuth redirect — authorization code comes back in URL query string
+  const urlParams = new URLSearchParams(window.location.search);
+  const code = urlParams.get('code');
+  if (code) {
+    // Exchange authorization code for access token
+    window.history.replaceState(null, '', window.location.pathname);
+    showToast('토큰 교환 중...', 'info');
+    try {
+      await exchangeCodeForToken(code);
       showToast('Spotify 연결 성공!', 'success');
-      // FIX #4: Use saved preference, not checkbox state (modal wasn't shown)
       fetchLikedSongs();
+    } catch (err) {
+      showToast('인증 실패: ' + err.message, 'error');
     }
   }
 
@@ -712,9 +713,21 @@ window.addEventListener('DOMContentLoaded', () => {
     // Check if token has expired
     var expiry = parseInt(sessionStorage.getItem(TOKEN_EXPIRY_KEY) || '0', 10);
     if (accessToken && expiry && Date.now() > expiry) {
-      accessToken = null;
-      sessionStorage.removeItem(TOKEN_KEY);
-      sessionStorage.removeItem(TOKEN_EXPIRY_KEY);
+      // Try refresh token first
+      var refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
+      if (refreshToken) {
+        try {
+          await refreshAccessToken(refreshToken);
+        } catch (e) {
+          accessToken = null;
+          sessionStorage.removeItem(TOKEN_KEY);
+          sessionStorage.removeItem(TOKEN_EXPIRY_KEY);
+        }
+      } else {
+        accessToken = null;
+        sessionStorage.removeItem(TOKEN_KEY);
+        sessionStorage.removeItem(TOKEN_EXPIRY_KEY);
+      }
     }
   }
   loadFromStorage();
@@ -820,6 +833,17 @@ async function spotifyFetch(url, retryCount = 0) {
     });
 
     if (res.status === 401) {
+      // Try refresh token before giving up
+      var refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
+      if (refreshToken && retryCount === 0) {
+        try {
+          await refreshAccessToken(refreshToken);
+          syncLog('🔄 토큰 자동 갱신 성공', 'ok');
+          return spotifyFetch(url, 1); // retry once with new token
+        } catch (e) {
+          // Refresh failed — clear everything
+        }
+      }
       accessToken = null;
       sessionStorage.removeItem(TOKEN_KEY);
       sessionStorage.removeItem(TOKEN_EXPIRY_KEY);
@@ -1092,14 +1116,116 @@ function startAuth() {
   fetchGenreOnSync = document.getElementById('fetchGenreCheck').checked;
   localStorage.setItem(GENRE_PREF_KEY, String(fetchGenreOnSync));
 
-  const redir = window.location.origin + window.location.pathname;
-  window.location.href =
-    'https://accounts.spotify.com/authorize?' +
-    'client_id=' + cid +
-    '&response_type=token' +
-    '&redirect_uri=' + encodeURIComponent(redir) +
-    '&scope=user-library-read' +
-    '&show_dialog=true';
+  // Start PKCE auth flow
+  startPKCEAuth(cid);
+}
+
+// ═══════════════════ PKCE AUTH FLOW ═══════════════════
+function generateRandomString(length) {
+  var array = new Uint8Array(length);
+  crypto.getRandomValues(array);
+  return Array.from(array, function(b) { return b.toString(16).padStart(2, '0'); }).join('').slice(0, length);
+}
+
+async function sha256(plain) {
+  var encoder = new TextEncoder();
+  var data = encoder.encode(plain);
+  var hash = await crypto.subtle.digest('SHA-256', data);
+  return hash;
+}
+
+function base64urlencode(buffer) {
+  var bytes = new Uint8Array(buffer);
+  var str = '';
+  for (var i = 0; i < bytes.length; i++) {
+    str += String.fromCharCode(bytes[i]);
+  }
+  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function startPKCEAuth(clientId) {
+  var codeVerifier = generateRandomString(64);
+  sessionStorage.setItem(CODE_VERIFIER_KEY, codeVerifier);
+
+  var hashed = await sha256(codeVerifier);
+  var codeChallenge = base64urlencode(hashed);
+
+  var redir = window.location.origin + window.location.pathname;
+  var params = new URLSearchParams({
+    client_id: clientId,
+    response_type: 'code',
+    redirect_uri: redir,
+    scope: 'user-library-read',
+    code_challenge_method: 'S256',
+    code_challenge: codeChallenge,
+    show_dialog: 'true'
+  });
+
+  window.location.href = 'https://accounts.spotify.com/authorize?' + params.toString();
+}
+
+async function exchangeCodeForToken(code) {
+  var clientId = localStorage.getItem(CLIENT_ID_KEY);
+  var codeVerifier = sessionStorage.getItem(CODE_VERIFIER_KEY);
+  var redir = window.location.origin + window.location.pathname;
+
+  if (!clientId || !codeVerifier) {
+    throw new Error('인증 정보가 없습니다. 다시 연결해주세요.');
+  }
+
+  var res = await fetch('https://accounts.spotify.com/api/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: clientId,
+      grant_type: 'authorization_code',
+      code: code,
+      redirect_uri: redir,
+      code_verifier: codeVerifier
+    })
+  });
+
+  if (!res.ok) {
+    var errData = await res.json().catch(function() { return {}; });
+    throw new Error(errData.error_description || errData.error || '토큰 교환 실패');
+  }
+
+  var data = await res.json();
+  accessToken = data.access_token;
+  sessionStorage.setItem(TOKEN_KEY, data.access_token);
+  sessionStorage.setItem(TOKEN_EXPIRY_KEY, String(Date.now() + data.expires_in * 1000));
+  sessionStorage.removeItem(CODE_VERIFIER_KEY);
+
+  // Store refresh token persistently (survives session close)
+  if (data.refresh_token) {
+    localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
+  }
+}
+
+async function refreshAccessToken(refreshToken) {
+  var clientId = localStorage.getItem(CLIENT_ID_KEY);
+  if (!clientId) throw new Error('Client ID 없음');
+
+  var res = await fetch('https://accounts.spotify.com/api/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: clientId,
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken
+    })
+  });
+
+  if (!res.ok) throw new Error('토큰 갱신 실패');
+
+  var data = await res.json();
+  accessToken = data.access_token;
+  sessionStorage.setItem(TOKEN_KEY, data.access_token);
+  sessionStorage.setItem(TOKEN_EXPIRY_KEY, String(Date.now() + data.expires_in * 1000));
+
+  if (data.refresh_token) {
+    localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
+  }
 }
 
 // ═══════════════════ TABLE (PAGINATED) ═══════════════════
