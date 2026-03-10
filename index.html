@@ -334,18 +334,18 @@ async function fetchLikedSongs(){
   document.getElementById('syncSpinner').style.display='';
   var syncBtn=document.getElementById('syncBtn'),stopBtn=document.getElementById('stopBtn');
   syncBtn.style.display='none';stopBtn.style.display='flex';
-  var existingIds=new Set(songs.map(function(s){return s.id;})),lastSave=0,consEx=0;
+  var existingIds=new Set(songs.map(function(s){return s.id;})),lastSave=0;
   try{
     syncLog('🎵 좋아요 목록 불러오기...','ok');
     var url='https://api.spotify.com/v1/me/tracks?limit=50',first=true;
     while(url){
       if(abortSync){syncLog('⏹ 사용자 중지','warn');break;}
       var data=await spotifyFetch(url);
-      if(first){syncState.total=data.total;syncLog(existingIds.size>0?'기존 '+existingIds.size+'곡 — 새 곡 검색':'총 '+data.total+'곡');first=false;}
+      if(first){syncState.total=data.total;syncLog('총 '+data.total+'곡 중 새 곡 검색 (기존 '+existingIds.size+'곡)');first=false;}
       for(var i=0;i<data.items.length;i++){var t=data.items[i].track;if(!t||!t.id)continue;syncState.loaded++;
-        if(!existingIds.has(t.id)){songs.push({id:t.id,track:t.name,artist:t.artists.map(function(a){return a.name;}).join(', '),artistIds:t.artists.map(function(a){return a.id;}),genre:'',chords:'',key:'',subgenre:'',composer:'',label:'',bpm:'',energy:'',tags:[],addedAt:data.items[i].added_at});syncState.newSongs++;existingIds.add(t.id);consEx=0;}else{consEx++;}}
+        if(!existingIds.has(t.id)){songs.push({id:t.id,track:t.name,artist:t.artists.map(function(a){return a.name;}).join(', '),artistIds:t.artists.map(function(a){return a.id;}),genre:'',chords:'',key:'',subgenre:'',composer:'',label:'',bpm:'',energy:'',tags:[],addedAt:data.items[i].added_at});syncState.newSongs++;existingIds.add(t.id);}}
       updateSyncUI();
-      if(existingIds.size>50&&consEx>=100){syncLog('✓ 새 곡 검색 완료','ok');url=null;}else{url=data.next;}
+      url=data.next;
       if(url)await sleep(80);
       if(syncState.loaded-lastSave>=500){saveToStorage();lastSave=syncState.loaded;syncLog('💾 중간 저장');}
     }
@@ -459,7 +459,7 @@ function toggleSelectAll(checked){var pg=displaySongs.slice((currentPage-1)*page
 function clearSelection(){selectedIds.clear();document.getElementById('selectAll').checked=false;updateDeleteBar();renderTable();}
 function updateDeleteBar(){var n=selectedIds.size;document.getElementById('deleteBar').classList.toggle('active',n>0);document.getElementById('selectedCount').textContent=n+'곡 선택';}
 function deleteSelected(){if(!selectedIds.size)return;if(!confirm(selectedIds.size+'곡을 삭제하시겠습니까?'))return;songs=songs.filter(function(s){return !selectedIds.has(s.id);});selectedIds.clear();rebuildSongMap();displaySongs=songs.slice();applySortToDisplay();saveToStorage();currentPage=1;renderTable();showToast('삭제 완료','success');}
-function findDuplicates(){var seen={},dupes=new Set();songs.forEach(function(s){var key=(s.track+'|||'+s.artist).toLowerCase();if(seen[key])dupes.add(s.id);else seen[key]=s.id;});if(!dupes.size){showToast('중복 곡이 없습니다','info');return;}selectedIds=dupes;updateDeleteBar();renderTable();showToast(dupes.size+'곡 중복 선별됨 (나중에 추가된 곡이 선택됨)','info');}
+function findDuplicates(){var sorted=songs.slice().sort(function(a,b){return new Date(a.addedAt||0)-new Date(b.addedAt||0);});var seen={},dupes=new Set();sorted.forEach(function(s){var key=(s.track+'|||'+s.artist).toLowerCase();if(seen[key]){dupes.add(s.id);}else{seen[key]=s.id;}});if(!dupes.size){showToast('중복 곡이 없습니다','info');return;}selectedIds=dupes;updateDeleteBar();renderTable();showToast(dupes.size+'곡 중복 선별됨 (원본 유지, 나중에 추가된 곡 선택됨)','info');}
 
 // Sort
 function sortBy(col){if(currentSort.col===col){if(currentSort.dir==='asc')currentSort.dir='desc';else{currentSort.col=null;currentSort.dir='asc';}}else{currentSort.col=col;currentSort.dir='asc';}document.querySelectorAll('thead th').forEach(function(th){th.classList.remove('sorted');var i=th.querySelector('.si');if(i)i.textContent='↕';});if(currentSort.col){var th=document.querySelector('th[data-col="'+col+'"]');if(th){th.classList.add('sorted');th.querySelector('.si').textContent=currentSort.dir==='asc'?'↑':'↓';}}applySortToDisplay();currentPage=1;renderTable();updateMobileSortChips();}
